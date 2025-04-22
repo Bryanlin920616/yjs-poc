@@ -11,8 +11,10 @@
   },
   "dependencies": {
     "@types/fabric": "^5.3.10",
+    "@types/lodash.debounce": "^4.0.9",
     "@y/websocket-server": "^0.1.1",
     "fabric": "^5.3.0",
+    "lodash.debounce": "^4.0.8",
     "quill": "^2.0.3",
     "quill-cursors": "^4.0.4",
     "react": "^19.0.0",

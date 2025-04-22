@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { fabric } from 'fabric'; // v5
+import debounce from 'lodash.debounce'; // 需要安裝 lodash.debounce
 
 type Tool = 'select' | 'text' | 'draw';
 
@@ -20,6 +21,9 @@ const CollaborativeCanvas = ({
   const activeToolRef = useRef<Tool>(activeTool);
   const [error, setError] = useState<string | null>(null);
   const colors = ['#000000', '#FF0000', '#00FF00', '#0000FF'];
+  // 添加標誌，區分本地與遠端變更
+  const isLoadingFromRemote = useRef<boolean>(false);
+  const lastSyncData = useRef<string>('');
 
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
 
@@ -72,19 +76,28 @@ const CollaborativeCanvas = ({
     let ydoc: Y.Doc | null = null;
     let ymap: Y.Map<any> | null = null;
 
-    const syncCanvasToYjs = () => {
-      if (!canvasInstance || !ymap) {
-        console.warn("Canvas instance or ymap not ready for sync.");
+    // 改進的同步功能，帶有防抖動和循環預防
+    const syncCanvasToYjs = debounce(() => {
+      if (!canvasInstance || !ymap || isLoadingFromRemote.current) {
+        console.warn("Skip syncing - canvas instance not ready or loading from remote.");
         return;
       }
       try {
-        const canvasJSON = canvasInstance.toJSON();
-        ymap.set('canvasData', canvasJSON);
-        console.log("Canvas synced to Yjs");
+        const canvasJSON = JSON.stringify(canvasInstance.toJSON());
+        
+        // 檢查數據是否真的變更了，避免不必要的同步
+        if (lastSyncData.current === canvasJSON) {
+          console.log("Skipping sync - no changes detected");
+          return;
+        }
+        
+        lastSyncData.current = canvasJSON;
+        ymap.set('canvasData', canvasInstance.toJSON());
+        console.log("Canvas synced to Yjs (local change)");
       } catch (syncErr) {
           console.error("Error syncing canvas to Yjs:", syncErr);
       }
-    };
+    }, 500); // 500ms 防抖動
 
     try {
       console.log("Initializing Fabric Canvas (v5)...", canvasRef.current);
@@ -108,27 +121,55 @@ const CollaborativeCanvas = ({
       provider.on('status', ({ status }: { status: string }) => {
         console.log('WebSocket Status:', status);
         if (status !== 'connected') {
+          // 連接狀態處理
         }
       });
 
-      canvasInstance.on('object:modified', syncCanvasToYjs);
-      canvasInstance.on('object:added', syncCanvasToYjs);
-      canvasInstance.on('path:created', syncCanvasToYjs);
-      canvasInstance.on('text:changed', syncCanvasToYjs);
+      // 只在本地變更時同步到 Yjs
+      canvasInstance.on('object:modified', () => {
+        if (!isLoadingFromRemote.current) syncCanvasToYjs();
+      });
+      canvasInstance.on('object:added', () => {
+        if (!isLoadingFromRemote.current) syncCanvasToYjs();
+      });
+      canvasInstance.on('path:created', () => {
+        if (!isLoadingFromRemote.current) syncCanvasToYjs();
+      });
+      canvasInstance.on('text:changed', () => {
+        if (!isLoadingFromRemote.current) syncCanvasToYjs();
+      });
 
+      // 改進 Yjs 資料觀察者，防止循環
       ymap.observe(() => {
         if (!canvasInstance || !ymap) return;
         try {
             const remoteCanvasData = ymap.get('canvasData');
             if (remoteCanvasData) {
-                console.log("Received remote canvas data");
+                const remoteDataString = JSON.stringify(remoteCanvasData);
+                
+                // 避免處理與最近同步相同的數據
+                if (lastSyncData.current === remoteDataString) {
+                    console.log("Skipping remote data - same as last sync");
+                    return;
+                }
+                
+                console.log("Receiving new remote canvas data");
+                isLoadingFromRemote.current = true; // 設置標誌，表示即將處理遠端數據
+                
+                lastSyncData.current = remoteDataString;
                 canvasInstance.loadFromJSON(remoteCanvasData, () => {
                     canvasInstance!.renderAll();
-                    console.log("Loaded remote data");
+                    // 延遲重設標誌，確保所有事件都已處理完畢
+                    setTimeout(() => {
+                        isLoadingFromRemote.current = false;
+                        console.log("Loaded remote data");
+                    }, 100);
                 });
             }
         } catch (loadErr) {
             console.error("Error loading remote canvas data:", loadErr);
+            // 確保在錯誤情況下也重設標誌
+            isLoadingFromRemote.current = false;
         }
       });
 
@@ -149,7 +190,8 @@ const CollaborativeCanvas = ({
         currentCanvas.setActiveObject(text);
         text.enterEditing();
         text.selectAll();
-        syncCanvasToYjs();
+        // 只有在非遠端載入狀態下才同步
+        if (!isLoadingFromRemote.current) syncCanvasToYjs();
       };
       canvasInstance.on('mouse:down', handleMouseDown);
       (canvasInstance as any).__mouseDownHandler = handleMouseDown;
@@ -170,10 +212,11 @@ const CollaborativeCanvas = ({
       if (currentCanvas) {
         console.log("Disposing Fabric instance...");
         try {
-          currentCanvas.off('object:modified', syncCanvasToYjs);
-          currentCanvas.off('object:added', syncCanvasToYjs);
-          currentCanvas.off('path:created', syncCanvasToYjs);
-          currentCanvas.off('text:changed', syncCanvasToYjs);
+          // 移除所有事件監聽器
+          currentCanvas.off('object:modified');
+          currentCanvas.off('object:added');
+          currentCanvas.off('path:created');
+          currentCanvas.off('text:changed');
           const handler = (currentCanvas as any).__mouseDownHandler;
           if (handler) {
               currentCanvas.off('mouse:down', handler);
