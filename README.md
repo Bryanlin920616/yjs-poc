@@ -1,54 +1,61 @@
-# React + TypeScript + Vite
+# Yjs Collaborative Drawing Proof of Concept
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This project is a real-time collaborative drawing Proof of Concept (POC) application built using [Yjs](https://github.com/yjs/yjs), [React](https://react.dev/), [Vite](https://vitejs.dev/), and [Fabric.js](http://fabricjs.com/).
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+*   **Real-time Collaborative Drawing**: Multiple users can connect to the same room (`canvas-demo`) and draw simultaneously on a shared canvas.
+*   **WebSocket Synchronization**: Uses Yjs and `y-websocket` to synchronize drawing actions in real-time via WebSockets.
 
-## Expanding the ESLint configuration
+## Tech Stack
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+*   Frontend Framework: React 19
+*   Build Tool: Vite
+*   Collaboration: Yjs, y-websocket
+*   Canvas Library: Fabric.js
+*   Language: TypeScript
 
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+## Setup & Running
+
+**1. Install Dependencies:**
+
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+**2. Set up WebSocket Server:**
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+This project requires a Yjs WebSocket server for synchronization. You can run the `y-websocket` server using `npx`.
 
-export default tseslint.config({
-  plugins: {
-    // Add the react-x and react-dom plugins
-    'react-x': reactX,
-    'react-dom': reactDom,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended typescript rules
-    ...reactX.configs['recommended-typescript'].rules,
-    ...reactDom.configs.recommended.rules,
-  },
-})
+*   Start the server, binding it to a specific IP address and port accessible on your local network:
+    ```bash
+    HOST=192.168.1.135 PORT=1234 npx y-websocket
+    ```
+    Replace `192.168.1.135` with the actual local IP address of the machine running the WebSocket server. This makes the server accessible to other devices on the same network.
+
+**Note:** The WebSocket URL is currently hardcoded in the frontend application as `ws://192.168.1.135:1234` (`src/App.tsx`). Ensure the `HOST` IP address used in the command above matches the IP address in the frontend code and is reachable from the client devices on your network. The `PORT` should also match.
+
+**3. Run Development Server:**
+
+Run the Vite development server with the `--host` flag to make it accessible on your local network:
+
+```bash
+npm run dev -- --host
 ```
+
+Vite will output the network URL (e.g., `http://192.168.1.XXX:5173`). Use this URL to access the application from other devices on the same network.
+
+**4. Open Multiple Browser Windows/Devices:**
+
+Open the network URL provided by Vite in multiple browser windows or on different devices connected to the same local network. You will see their drawing actions synchronized in real-time via the WebSocket server.
+
+## Available Scripts
+
+*   `npm run dev`: Starts the development server.
+*   `npm run build`: Builds the application for production.
+*   `npm run lint`: Lints the code using ESLint.
+*   `npm run preview`: Previews the production build locally.
+
+## Known Issues
+
+*   React StrictMode is commented out (`src/main.tsx`) due to potential compatibility issues with Fabric.js ([fabricjs/fabric.js#10136](https://github.com/fabricjs/fabric.js/issues/10136)).
