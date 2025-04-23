@@ -59,3 +59,7 @@ Open the network URL provided by Vite in multiple browser windows or on differen
 ## Known Issues
 
 *   React StrictMode is commented out (`src/main.tsx`) due to potential compatibility issues with Fabric.js ([fabricjs/fabric.js#10136](https://github.com/fabricjs/fabric.js/issues/10136)).
+
+## License
+
+This project is licensed under the MIT License.
