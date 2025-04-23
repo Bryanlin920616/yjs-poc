@@ -4,7 +4,7 @@ import { WebsocketProvider } from 'y-websocket';
 import { fabric } from 'fabric'; // v5
 import debounce from 'lodash.debounce'; // 需要安裝 lodash.debounce
 
-type Tool = 'select' | 'text' | 'draw';
+type Tool = 'select' | 'text' | 'draw' | 'image';
 
 interface CollaborativeCanvasProps {
   roomName: string;
@@ -24,6 +24,8 @@ const CollaborativeCanvas = ({
   // 添加標誌，區分本地與遠端變更
   const isLoadingFromRemote = useRef<boolean>(false);
   const lastSyncData = useRef<string>('');
+  // 用於觸發檔案上傳 input
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
 
@@ -59,8 +61,16 @@ const CollaborativeCanvas = ({
     canvas.clear();
     canvas.backgroundColor = '#ffffff';
     canvas.renderAll();
+    // 清除操作也需要同步
+    syncCanvasToYjs(); 
   };
 
+  // 將這兩個函數移到 useEffect 外部，因為它們不需要訪問 useEffect 內部變數
+  const triggerImageUpload = () => {
+    fileInputRef.current?.click();
+  };
+
+  // 主要的初始化和同步邏輯
   useEffect(() => {
     if (!canvasRef.current) {
       console.log("Canvas ref not available yet.");
@@ -76,7 +86,7 @@ const CollaborativeCanvas = ({
     let ydoc: Y.Doc | null = null;
     let ymap: Y.Map<any> | null = null;
 
-    // 改進的同步功能，帶有防抖動和循環預防
+    // 將 syncCanvasToYjs 定義移到 useEffect 的最前面
     const syncCanvasToYjs = debounce(() => {
       if (!canvasInstance || !ymap || isLoadingFromRemote.current) {
         console.warn("Skip syncing - canvas instance not ready or loading from remote.");
@@ -84,20 +94,84 @@ const CollaborativeCanvas = ({
       }
       try {
         const canvasJSON = JSON.stringify(canvasInstance.toJSON());
-        
-        // 檢查數據是否真的變更了，避免不必要的同步
         if (lastSyncData.current === canvasJSON) {
           console.log("Skipping sync - no changes detected");
           return;
         }
-        
         lastSyncData.current = canvasJSON;
         ymap.set('canvasData', canvasInstance.toJSON());
         console.log("Canvas synced to Yjs (local change)");
       } catch (syncErr) {
-          console.error("Error syncing canvas to Yjs:", syncErr);
+        console.error("Error syncing canvas to Yjs:", syncErr);
       }
-    }, 500); // 500ms 防抖動
+    }, 500);
+
+    // 將 handleClear 的同步調用移到 useEffect 內部
+    const handleClearInternal = () => {
+        const canvas = fabricRef.current;
+        if (!canvas) return;
+        canvas.clear();
+        canvas.backgroundColor = '#ffffff';
+        canvas.renderAll();
+        // 在這裡調用 useEffect 內的 syncCanvasToYjs
+        syncCanvasToYjs(); 
+      };
+    (window as any).handleClearInternal = handleClearInternal; // 讓外部按鈕可以調用
+
+    // 處理圖片上傳函數，定義在 useEffect 內
+    const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      // 使用 useEffect 內的 canvasInstance
+      const canvas = fabricRef.current; 
+      if (!canvas) return;
+
+      const reader = new FileReader();
+      reader.onload = (f) => {
+        const data = f.target?.result as string;
+        fabric.Image.fromURL(data, (img) => {
+          const scale = Math.min(150 / img.width!, 150 / img.height!); 
+          img.set({
+            left: 100,
+            top: 100,
+            scaleX: scale,
+            scaleY: scale,
+            selectable: true,
+            evented: true
+          });
+          canvas.add(img);
+          canvas.setActiveObject(img);
+          canvas.renderAll();
+          // 調用 useEffect 內的 syncCanvasToYjs
+          if (!isLoadingFromRemote.current) syncCanvasToYjs(); 
+        });
+      };
+      reader.readAsDataURL(file);
+      event.target.value = '';
+    };
+    // 將事件處理器綁定到 input
+    if (fileInputRef.current) {
+        fileInputRef.current.onchange = handleImageUpload;
+    }
+
+    // 處理物件刪除函數，定義在 useEffect 內
+    const handleDeleteKey = (event: KeyboardEvent) => {
+      // 使用 useEffect 內的 canvasInstance
+      const canvas = fabricRef.current;
+      if (!canvas || activeToolRef.current !== 'select' || !canvas.getActiveObject()) {
+        return;
+      }
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        const activeObjects = canvas.getActiveObjects();
+        if (activeObjects.length > 0) {
+          activeObjects.forEach(obj => canvas.remove(obj));
+          canvas.discardActiveObject();
+          canvas.renderAll();
+          // 調用 useEffect 內的 syncCanvasToYjs
+          if (!isLoadingFromRemote.current) syncCanvasToYjs(); 
+        }
+      }
+    };
 
     try {
       console.log("Initializing Fabric Canvas (v5)...", canvasRef.current);
@@ -125,58 +199,44 @@ const CollaborativeCanvas = ({
         }
       });
 
-      // 只在本地變更時同步到 Yjs
-      canvasInstance.on('object:modified', () => {
-        if (!isLoadingFromRemote.current) syncCanvasToYjs();
-      });
-      canvasInstance.on('object:added', () => {
-        if (!isLoadingFromRemote.current) syncCanvasToYjs();
-      });
-      canvasInstance.on('path:created', () => {
-        if (!isLoadingFromRemote.current) syncCanvasToYjs();
-      });
-      canvasInstance.on('text:changed', () => {
-        if (!isLoadingFromRemote.current) syncCanvasToYjs();
-      });
+      // 本地變更事件監聽
+      canvasInstance.on('object:modified', () => { if (!isLoadingFromRemote.current) syncCanvasToYjs(); });
+      canvasInstance.on('object:added', () => { if (!isLoadingFromRemote.current) syncCanvasToYjs(); });
+      canvasInstance.on('path:created', () => { if (!isLoadingFromRemote.current) syncCanvasToYjs(); });
+      canvasInstance.on('text:changed', () => { if (!isLoadingFromRemote.current) syncCanvasToYjs(); });
 
-      // 改進 Yjs 資料觀察者，防止循環
+      // Yjs 資料觀察者
       ymap.observe(() => {
         if (!canvasInstance || !ymap) return;
         try {
-            const remoteCanvasData = ymap.get('canvasData');
-            if (remoteCanvasData) {
-                const remoteDataString = JSON.stringify(remoteCanvasData);
-                
-                // 避免處理與最近同步相同的數據
-                if (lastSyncData.current === remoteDataString) {
-                    console.log("Skipping remote data - same as last sync");
-                    return;
-                }
-                
-                console.log("Receiving new remote canvas data");
-                isLoadingFromRemote.current = true; // 設置標誌，表示即將處理遠端數據
-                
-                lastSyncData.current = remoteDataString;
-                canvasInstance.loadFromJSON(remoteCanvasData, () => {
-                    canvasInstance!.renderAll();
-                    // 延遲重設標誌，確保所有事件都已處理完畢
-                    setTimeout(() => {
-                        isLoadingFromRemote.current = false;
-                        console.log("Loaded remote data");
-                    }, 100);
-                });
+          const remoteCanvasData = ymap.get('canvasData');
+          if (remoteCanvasData) {
+            const remoteDataString = JSON.stringify(remoteCanvasData);
+            if (lastSyncData.current === remoteDataString) {
+              console.log("Skipping remote data - same as last sync");
+              return;
             }
+            console.log("Receiving new remote canvas data");
+            isLoadingFromRemote.current = true;
+            lastSyncData.current = remoteDataString;
+            canvasInstance.loadFromJSON(remoteCanvasData, () => {
+              canvasInstance!.renderAll();
+              setTimeout(() => {
+                isLoadingFromRemote.current = false;
+                console.log("Loaded remote data");
+              }, 100);
+            });
+          }
         } catch (loadErr) {
-            console.error("Error loading remote canvas data:", loadErr);
-            // 確保在錯誤情況下也重設標誌
-            isLoadingFromRemote.current = false;
+          console.error("Error loading remote canvas data:", loadErr);
+          isLoadingFromRemote.current = false;
         }
       });
 
+      // 文字工具的 mouseDown 處理
       const handleMouseDown = (options: fabric.IEvent) => {
         const currentCanvas = fabricRef.current;
         if (!currentCanvas || activeToolRef.current !== 'text') return;
-        
         const pointer = currentCanvas.getPointer(options.e);
         const text = new fabric.IText('點擊編輯文字', {
           left: pointer.x,
@@ -190,11 +250,13 @@ const CollaborativeCanvas = ({
         currentCanvas.setActiveObject(text);
         text.enterEditing();
         text.selectAll();
-        // 只有在非遠端載入狀態下才同步
         if (!isLoadingFromRemote.current) syncCanvasToYjs();
       };
       canvasInstance.on('mouse:down', handleMouseDown);
       (canvasInstance as any).__mouseDownHandler = handleMouseDown;
+
+      // 綁定刪除鍵事件監聽
+      window.addEventListener('keydown', handleDeleteKey);
 
     } catch (initError) {
       console.error("CRITICAL: Error during initialization:", initError);
@@ -222,6 +284,14 @@ const CollaborativeCanvas = ({
               currentCanvas.off('mouse:down', handler);
           }
           currentCanvas.dispose();
+          // 移除刪除鍵事件監聽
+          window.removeEventListener('keydown', handleDeleteKey);
+          // 移除 input 的 onchange 處理器
+          if (fileInputRef.current) {
+              fileInputRef.current.onchange = null;
+          }
+          // 清理暴露在 window 上的函數
+          delete (window as any).handleClearInternal;
         } catch (disposeError) {
           console.error("Error during canvas disposal:", disposeError);
         }
@@ -308,9 +378,21 @@ const CollaborativeCanvas = ({
         />
         <button 
           className="tool-btn"
-          onClick={handleClear}
+          onClick={() => (window as any).handleClearInternal?.()}
         >
           清除
+        </button>
+        <input
+          type="file"
+          accept="image/*"
+          ref={fileInputRef}
+          style={{ display: 'none' }}
+        />
+        <button 
+          className="tool-btn"
+          onClick={triggerImageUpload}
+        >
+          上傳圖片
         </button>
       </div>
       <div className="canvas-container">
