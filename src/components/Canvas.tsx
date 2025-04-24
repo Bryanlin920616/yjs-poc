@@ -3,17 +3,7 @@ import { fabric } from 'fabric'; // v5
 
 type Tool = 'select' | 'text' | 'draw' | 'image';
 
-interface CanvasProps {
-  templateId?: string; // 模板ID
-  initialPhotos?: string[]; // 現在是可選的，父元件會提供
-}
-
-const Canvas = ({
-  templateId,
-  initialPhotos: initialPhotosFromProps // 接收 props，避免命名衝突
-}: CanvasProps) => {
-  // 在元件內部提供預設值，確保它不是 undefined
-  const initialPhotos = initialPhotosFromProps ?? []; 
+const Canvas = () => {
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fabricRef = useRef<fabric.Canvas | null>(null);
@@ -165,28 +155,6 @@ const Canvas = ({
       };
       (window as any).handleClearInternal = handleClearInternal;
 
-      // 載入初始照片（如果有）
-      if (initialPhotos.length > 0) {
-        initialPhotos.forEach((photoUrl, index) => {
-          fabric.Image.fromURL(photoUrl, (img) => {
-            const left = 50 + (index * 20);
-            const top = 50 + (index * 20);
-            const scale = Math.min(200 / img.width!, 200 / img.height!);
-            
-            img.set({
-              left,
-              top,
-              scaleX: scale,
-              scaleY: scale,
-              selectable: true,
-              evented: true
-            });
-            
-            canvasInstance!.add(img);
-            canvasInstance!.renderAll();
-          });
-        });
-      }
 
     } catch (initError) {
       console.error("CRITICAL: Error during initialization:", initError);
@@ -220,7 +188,7 @@ const Canvas = ({
       }
       console.log("Cleanup finished.");
     };
-  }, [initialPhotos, templateId]); 
+  }, []); // 添加空依賴陣列，確保useEffect只執行一次
 
   useEffect(() => {
     const canvas = fabricRef.current;
