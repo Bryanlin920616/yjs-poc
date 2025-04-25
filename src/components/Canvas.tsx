@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { fabric } from 'fabric'; // v5
+import SaveTemplateDialog from './templates/SaveTemplateDialog';
+import TemplateGalleryDialog from './templates/TemplateGalleryDialog';
 
 type Tool = 'select' | 'text' | 'draw' | 'image';
 
@@ -12,6 +14,10 @@ const Canvas = () => {
   const [error, setError] = useState<string | null>(null);
   const colors = ['#000000', '#FF0000', '#00FF00', '#0000FF'];
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // 模板相關狀態
+  const [saveTemplateDialogOpen, setSaveTemplateDialogOpen] = useState(false);
+  const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
 
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
 
@@ -278,6 +284,21 @@ const Canvas = () => {
         >
           上傳圖片
         </button>
+        
+        {/* 模板功能 */}
+        <div className="toolbar-divider"></div>
+        <button 
+          className="tool-btn"
+          onClick={() => setSaveTemplateDialogOpen(true)}
+        >
+          儲存模板
+        </button>
+        <button 
+          className="tool-btn"
+          onClick={() => setTemplateGalleryOpen(true)}
+        >
+          模板庫
+        </button>
       </div>
       <div className="canvas-container">
         <canvas 
@@ -286,6 +307,19 @@ const Canvas = () => {
           height={600}
         />
       </div>
+      
+      {/* 模板對話框 */}
+      <SaveTemplateDialog 
+        isOpen={saveTemplateDialogOpen}
+        onClose={() => setSaveTemplateDialogOpen(false)}
+        canvas={fabricRef.current}
+      />
+      
+      <TemplateGalleryDialog
+        isOpen={templateGalleryOpen}
+        onClose={() => setTemplateGalleryOpen(false)}
+        canvas={fabricRef.current}
+      />
     </div>
   );
 };
